@@ -7,9 +7,9 @@
 > Targeted LC-MS metabolomics pipeline — publication build of LEAF
 > (LC-MS Extensible Analysis Framework).
 
-This distribution accompanies the manuscript *&lt;paper title — fill in
-before release&gt;* and contains the targeted metabolomics workflow used to
-generate the reported results: extract metabolites by reference list,
+This distribution accompanies the manuscript *High-Throughput Mass-Spectrometry-Based Quantification and Functional
+Assessment of Polyamine Metabolism* and contains the targeted metabolomics
+workflow used to generate the reported results: extract metabolites by reference list,
 detect peaks, score peak quality, export results.
 
 Untargeted feature discovery, interactive peak picking parameter tuning,
@@ -23,7 +23,9 @@ private development.
 
 If you use this software, please cite:
 
-> &lt;citation block — to be filled in upon publication&gt;
+> *High-Throughput Mass-Spectrometry-Based Quantification and Functional
+> Assessment of Polyamine Metabolism.* (Journal reference follows on
+> publication.)
 
 ---
 
@@ -33,28 +35,48 @@ Download the wheel matching your platform from this repository's
 [Releases](https://github.com/MorscherLab/LEAF-targeted/releases) page, then:
 
 ```bash
-pip install leaf_targeted-<version>-<platform>.whl
+pip install leaf_targeted-0.5.0+paper.2-<platform>.whl
 ```
 
 | Platform | Wheel suffix |
 |---|---|
-| Linux x86_64 | `manylinux_2_28_x86_64.whl` |
+| Linux x86_64 | `manylinux_*_x86_64.whl` |
 | macOS arm64 (Apple Silicon) | `macosx_*_arm64.whl` |
 | Windows x64 | `win_amd64.whl` |
 
 Verify installation:
 
 ```bash
-leaf --version
+pip show leaf-targeted   # Version: 0.5.0+paper.2
+leaf --help
 ```
 
 ### System requirements
 
-- Python **3.12 or 3.13**
+- Python **3.12** (the wheels are built for CPython 3.12 only)
 - macOS 12+ (arm64) / Ubuntu 22.04+ (x86_64) / Windows 10+ (x64)
 - 4 GB RAM minimum, 8 GB recommended for batches of 50+ files
+- No non-standard hardware (no GPU, no instrument connection)
 - For Windows: the bundled .NET 8 runtime is included; no separate
   install needed
+
+### Tested versions
+
+| OS | Python | How |
+|---|---|---|
+| macOS 27.2, Apple M5 Pro (arm64) | 3.12.13 | Build, smoke tests and demo |
+| Ubuntu 22.04 (x86_64, container) | 3.12 | Build and smoke tests |
+| Windows 11 Pro 24H2 (x64) | 3.12 | Build and smoke tests |
+
+The smoke tests install the wheel into a clean virtual environment and run
+`leaf targeted` end to end on a synthetic mzML file.
+
+### Install time
+
+About 20 s with `pip` and 5 s with `uv pip`, on a desktop computer with
+a broadband connection (measured on macOS, Apple M5 Pro, empty package
+cache). Most of the time is the download of NumPy, SciPy, pandas and
+PyArrow.
 
 ---
 
@@ -102,12 +124,51 @@ leaf targeted ./raw_files/ metabolite-list.csv ./output/ \
 ### 3. Inspect results
 
 ```bash
-leaf inspect ./output/SAMPLE.msd
+leaf inspect ./output/<stem>_extracted.msd
 ```
 
-The pipeline writes one `.msd` file per RAW input, plus optional
-aggregated summary tables in CSV / Parquet form. See [Output format](#output-format)
+The pipeline writes one `<stem>_extracted.msd` archive for the whole run
+and one `<stem>_result.csv` quantification table, where `<stem>` is the
+name of the input file or folder. See [Output format](#output-format)
 below.
+
+---
+
+## Demo
+
+The demo runs the manuscript's command (Table 5) on one RAW file of the
+paper's dataset.
+
+1. Download one RAW file from MassIVE dataset
+   [MSV000101858](https://massive.ucsd.edu/ProteoSAFe/dataset.jsp?accession=MSV000101858)
+   (doi:10.25345/C5Z31P31Q), for example
+   `exp159_251023_LCK_PA_cells_POS_C1_A_108.raw` (126 MB), into a folder
+   `data/`.
+2. Download [`examples/polyamine-list.csv`](examples/polyamine-list.csv)
+   (107 AQC-derivatized polyamines, amino acids and related compounds).
+3. Run:
+
+   ```bash
+   leaf targeted data/ polyamine-list.csv results/ \
+       --polarity POS --tolerance 5 --rt-window 0.1 --method v4 \
+       --intensity-threshold 1e5 --report --save-extract
+   ```
+
+**Expected output** in `results/`:
+
+| File | Content |
+|---|---|
+| `data_extracted.msd` | EICs, peaks and scores; open it in `leaf webui run` |
+| `data_result.csv` | 321 rows: one row per compound and isotopologue, peak area per sample |
+| `report.pdf` | Summary pages and one EIC panel per compound |
+
+The terminal summary reports `Compounds scored: 107 (good 26 · warning
+11 · poor 0 · insufficient 70)`. With one sample most compounds are
+`insufficient`, because the verdict needs detections across samples.
+
+**Expected run time:** about 10 s for one file (8.4 s wall time, 0.4 GB
+peak memory, macOS, Apple M5 Pro). Run time increases linearly with the
+number of files.
 
 ---
 
@@ -162,7 +223,7 @@ Run any subcommand with `--help` for full option list.
 
 ### `.msd` archive
 
-A zstd-compressed Arrow/Parquet bundle containing, per RAW input:
+A zstd-compressed Arrow/Parquet bundle containing, for all inputs of the run:
 
 - **`tensor`** — sparse intensity matrix `[n_rt × n_metabolites]`
 - **`peaks_dict`** — detected peak RT indices for each (sample, metabolite)
@@ -174,37 +235,36 @@ Load programmatically:
 
 ```python
 from leaf.analyzer.data import Samples
-samples = Samples.load("output/SAMPLE.msd")
-print(samples.tensor.shape)
+samples = Samples.load("results/data_extracted.msd")
+print(len(samples.tensor), samples.tensor[0].shape)
 print(samples.compound_scores["glucose"].verdict)
 ```
 
-### Aggregated tables
-
-When run over multiple RAWs, an aggregated set of CSV / Parquet exports
-lands alongside the per-sample `.msd` files:
+### Tables and report
 
 | File | Content |
 |---|---|
-| `quantification.csv` | Wide table: metabolites × samples, peak areas |
-| `quality.csv` | Verdict + sub-scores per (sample, metabolite) |
-| `peak_picks.parquet` | Detailed peak metrics |
+| `<stem>_result.csv` | Peak area per compound, isotopologue and sample |
+| `report.pdf` | EIC panels and verdicts (only with `--report`) |
 
 ---
 
 ## Reproducing paper results
 
-The exact command line + metabolite list used for each figure in the
-manuscript is documented in
-[`examples/paper-runs/`](examples/paper-runs/), with one subdirectory per
-figure. Each contains:
+The manuscript's automatic processing uses the command in the
+[Demo](#demo) section (manuscript Table 5) on all RAW files of an
+experiment:
 
-- `run.sh` — the literal command to reproduce the analysis
-- `metabolite-list.csv` — the compound list as published
-- `expected/` — golden output sketches for spot-checking
+1. Download the RAW files of the experiment from MassIVE
+   [MSV000101858](https://massive.ucsd.edu/ProteoSAFe/dataset.jsp?accession=MSV000101858)
+   into one folder.
+2. Run the Demo command on that folder with
+   [`examples/polyamine-list.csv`](examples/polyamine-list.csv).
+3. Open `<folder>_extracted.msd` in `leaf webui run` for the optional
+   peak correction described in the manuscript.
 
-Note: the input RAW files themselves are deposited on Zenodo (DOI link
-in the manuscript) due to size.
+The version used in the manuscript is archived on Zenodo
+(doi:10.5281/zenodo.19954098).
 
 ---
 
@@ -217,7 +277,7 @@ to install, reinstall the wheel after `pip install pythonnet>=3.0.5`.
 
 **`pip install` fails with "no matching distribution"**
 You're on an unsupported platform/Python. The wheels target Python 3.12
-or 3.13 on Linux x86_64, macOS arm64, and Windows x64. Other
+on Linux x86_64, macOS arm64, and Windows x64. Other
 combinations are not supported in this release.
 
 **Peak quality verdicts are mostly "poor"**
@@ -234,13 +294,15 @@ try an alternate port.
 
 ## License
 
-This software is distributed under a **strict publication license** —
-academic / non-commercial research use only, no redistribution, no
-modification, no reverse engineering of compiled components. See
-[`LICENSE`](LICENSE) for the full terms.
+LEAF (Targeted) is free software under the **GNU Affero General Public
+License v3.0 only** (AGPL-3.0-only, OSI-approved), with additional terms
+under AGPL-3.0 section 7: keep the attribution notices, mark modified
+versions, no use of the authors' names for endorsement, and no rights to
+the LEAF name or logo. See [`LICENSE`](LICENSE) for the license text and
+[`NOTICE.md`](NOTICE.md) for the copyright notice and the additional
+terms.
 
-Commercial licensing inquiries: see `LICENSE` section 1 and the contact
-at the bottom of that file.
+For other licensing terms, contact raphael.morscher@kispi.uzh.ch.
 
 ---
 

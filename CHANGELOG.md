@@ -9,10 +9,29 @@ LEAF development history is not mirrored here.
 
 ---
 
+## [0.5.0+paper.2] — 2026-11-27
+
+### Fixed
+
+- `leaf targeted` no longer stops at peak picking with
+  `TypeError: Expected tuple, got numpy.ndarray`. The compiled wheel
+  enforced a wrong return annotation that Python ignores; every run of
+  0.5.0+paper.1 failed at this step.
+- `--report` no longer stops with `ValueError: The truth value of an empty
+  array is ambiguous` when a compound has no detected peak.
+
+### Changed
+
+- License: AGPL-3.0-only with additional terms under section 7 (see
+  `NOTICE.md`), replacing the custom publication license.
+- Added `examples/polyamine-list.csv`, the 107-compound list for the demo.
+
+---
+
 ## [0.5.0+paper.1] — 2026-05-15
 
 First paper-supplement release. Companion to the manuscript
-*&lt;paper title — to be filled in upon publication&gt;*.
+*High-Throughput Mass-Spectrometry-Based Quantification and Functional Assessment of Polyamine Metabolism*.
 
 ### What this distribution ships
 
